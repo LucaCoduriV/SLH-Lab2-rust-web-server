@@ -62,7 +62,7 @@ async fn login(
         }
     }
     println!("User does not exist !");
-    Ok((jar, AuthResult::Error))
+    Err((StatusCode::UNAUTHORIZED, AuthResult::Error).into_response())
 }
 
 /// Endpoint used to register a new account
@@ -89,7 +89,7 @@ async fn register(
     } else {
         // create a wrong insert to db
         println!("User already exists");
-        Ok(AuthResult::Error)
+        Err((StatusCode::UNAUTHORIZED, AuthResult::Error).into_response())
     }
 
     // Once the user has been created, send a verification link by email

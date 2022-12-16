@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 /// The initialization is done only once when the variable is used for the first time.  
 pub static OAUTH_CLIENT: Lazy<BasicClient> = Lazy::new(|| {
     // TODO: We currently hardcode the credentials, try to improve it.
-    let google_client_id = ClientId::new("GOOGLE_CLIENT_ID".to_string());
-    let google_client_secret = ClientSecret::new("GOOGLE_CLIENT_SECRET".to_string());
+    let google_client_id = ClientId::new("50380768452-3oemudg0c51bbtuc3drin20iekp22iq6.apps.googleusercontent.com".to_string());
+    let google_client_secret = ClientSecret::new("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".to_string());
 
-    let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())
+    let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/auth".to_string())
         .expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new("https://www.googleapis.com/oauth2/v3/token".to_string())
+    let token_url = TokenUrl::new("https://oauth2.googleapis.com/token".to_string())
         .expect("Invalid token endpoint URL");
 
     // TODO: Set redirect URI, be careful to use the same as the one configured in Google Cloud.

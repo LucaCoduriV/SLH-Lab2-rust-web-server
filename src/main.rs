@@ -9,6 +9,7 @@ use dotenv::dotenv;
 use handlebars::Handlebars;
 use std::env;
 use std::net::SocketAddr;
+extern crate argon2;
 
 mod auth;
 mod db;

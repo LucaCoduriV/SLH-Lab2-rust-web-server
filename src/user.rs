@@ -6,7 +6,7 @@ use axum_sessions::async_session::chrono;
 use axum_sessions::async_session::chrono::Utc;
 use strum_macros::{Display, EnumString};
 
-#[derive(Debug, Display, EnumString, Serialize, Deserialize)]
+#[derive(Debug, Display, EnumString, Serialize, Deserialize, PartialEq)]
 pub enum AuthenticationMethod {
     Password,
     OAuth,

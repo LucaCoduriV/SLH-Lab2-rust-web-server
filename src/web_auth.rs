@@ -153,7 +153,8 @@ async fn oauth_redirect(
 
     let csrf_token: CsrfToken = session.get("csrf_token").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let cookie_csrf_token = jar.get("csrf_token").ok_or(StatusCode::BAD_REQUEST)?;
+    let cookie_csrf_token = jar.get("csrf_token").ok_or(StatusCode::BAD_REQUEST)?.clone();
+
 
     if csrf_token.secret() != cookie_csrf_token.value() {
         return Err(StatusCode::UNAUTHORIZED);
@@ -181,8 +182,8 @@ async fn oauth_redirect(
             .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?
     };
 
-    // Once the OAuth user is authenticated, create the user in the DB and add a JWT cookie
-    // let jar = add_auth_cookie(jar, &user_dto).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    let jar = jar.remove(cookie_csrf_token);
+    // session.remove("csrf_token"); je pense qu'il est possible d'empêcher quelqu'un de se connecter avec cette ligne
     Ok((jar, Redirect::to("/home")))
 }
 

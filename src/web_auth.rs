@@ -1,9 +1,10 @@
-use crate::db::{DbConn, get_user, save_user, update_password, user_exists};
+use std::collections::HashMap;
+use crate::db::{DbConn, get_user, save_user, update_password, user_exists, validate_account};
 use crate::models::{
     AppState, LoginRequest, OAuthRedirect, PasswordUpdateRequest, RegisterRequest,
 };
 use crate::user::{AuthenticationMethod, User, UserDTO};
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -13,10 +14,14 @@ use axum_extra::extract::CookieJar;
 use axum_sessions::async_session::{MemoryStore, Session, SessionStore};
 use serde_json::json;
 use std::error::Error;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::SaltString;
 use jsonwebtoken::{encode, EncodingKey, Header};
 
 use oauth2::{AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope};
 use oauth2::reqwest::{async_http_client};
+use crate::mail::send_verification_email;
 use crate::oauth::get_google_oauth_email;
 
 /// Declares the different endpoints
@@ -29,6 +34,7 @@ pub fn stage(state: AppState) -> Router {
         .route("/_oauth", get(oauth_redirect))
         .route("/password_update", post(password_update))
         .route("/logout", get(logout))
+        .route("/verify-email/:token", get(verify_email))
         .with_state(state)
 }
 
@@ -44,8 +50,13 @@ async fn login(
     let _password = login.login_password;
 
     if let Ok(user) = get_user(&mut _conn, _email.as_str()) {
-        if user.get_auth_method() == AuthenticationMethod::Password {
-            if let Ok(true) = argon2::verify_encoded(user.password.as_str(), _password.as_bytes()) {
+        if !user.email_verified {
+            return Err(AuthResult::NotVerified.into_response());
+        }
+
+        if user.get_auth_method() == AuthenticationMethod::Password  {
+            let parsed_hash = PasswordHash::new(&user.password.as_str()).unwrap();
+            if let Ok(_) = Argon2::default().verify_password(_password.as_bytes(), &parsed_hash) {
                 println!("User logged in !");
                 // Once the user has been created, authenticate the user by adding a JWT cookie in the cookie jar
                 let jar = add_auth_cookie(jar, &user.to_dto())
@@ -55,7 +66,7 @@ async fn login(
         }
     }
     println!("User does not exist !");
-    Err((StatusCode::UNAUTHORIZED, AuthResult::Error).into_response())
+    Err(AuthResult::Error.into_response())
 }
 
 /// Endpoint used to register a new account
@@ -66,18 +77,22 @@ async fn register(
     State(_session_store): State<MemoryStore>,
     Json(register): Json<RegisterRequest>,
 ) -> Result<AuthResult, Response> {
-    // TODO: Implement the register function. The email must be verified by sending a link.
     let _email = register.register_email;
     let _password = register.register_password;
 
-    let salt = b"randomsalt"; // TODO create random salt
-    let config = argon2::Config::default();
-    let hash = argon2::hash_encoded(_password.as_bytes(), salt, &config).unwrap();
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let hash = argon2.hash_password(_password.as_bytes(), &salt).unwrap().to_string();
 
     if let Err(_) = user_exists(&mut _conn, _email.as_str()) {
-        save_user(&mut _conn, User::new(_email.as_str(), hash.as_str(), AuthenticationMethod::Password, true))
+        save_user(&mut _conn, User::new(_email.as_str(), hash.as_str(),
+                                        AuthenticationMethod::Password, false))
             .or(Err((StatusCode::INTERNAL_SERVER_ERROR, AuthResult::Error).into_response()))?;
         println!("User created !");
+
+        send_verification_email(_email.clone(), format!("http://localhost:8000/verify-account/{}",
+                                                 _email).to_string());
+
         Ok(AuthResult::Success)
     } else {
         Err((StatusCode::UNAUTHORIZED, AuthResult::Error).into_response())
@@ -90,6 +105,13 @@ async fn register(
 }
 
 // TODO: Create the endpoint for the email verification function.
+async fn verify_email(Path(params): Path<HashMap<String, String>>, mut _conn: DbConn) {
+    let token = params.get("token");
+
+    println!("{}", token.expect(""));
+
+    validate_account(&mut _conn, token.unwrap());
+}
 
 /// Endpoint used for the first OAuth step
 /// GET /oauth/google
@@ -191,7 +213,7 @@ async fn oauth_redirect(
 /// POST /password_update
 /// BODY { "old_password": "pass", "new_password": "pass" }
 async fn password_update(
-    mut _conn:DbConn,
+    mut _conn: DbConn,
     _user: UserDTO,
     Json(_update): Json<PasswordUpdateRequest>,
 ) -> Result<AuthResult, Response> {
@@ -202,13 +224,15 @@ async fn password_update(
         return Err((StatusCode::BAD_REQUEST, AuthResult::Error).into_response());
     }
 
-    if  !argon2::verify_encoded(user.password.as_str(), _update.old_password.as_bytes()).unwrap() {
+    let parsed_hash = PasswordHash::new(&user.password.as_str()).unwrap();
+
+    if Argon2::default().verify_password(_update.old_password.as_bytes(), &parsed_hash).is_err() {
         return Err((StatusCode::BAD_REQUEST, AuthResult::Error).into_response());
     }
 
-    let salt = b"randomsalt";
-    let config = argon2::Config::default();
-    let hash = argon2::hash_encoded(_update.new_password.as_bytes(), salt, &config).unwrap();
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let hash = argon2.hash_password(_update.new_password.as_bytes(), &salt).unwrap().to_string();
 
     update_password(&mut _conn, _user.email.as_str(), hash.as_str())
         .or(Err((StatusCode::INTERNAL_SERVER_ERROR, AuthResult::Success).into_response()))?;
@@ -237,6 +261,7 @@ fn add_auth_cookie(jar: CookieJar, _user: &UserDTO) -> Result<CookieJar, Box<dyn
 enum AuthResult {
     Success,
     Error,
+    NotVerified
 }
 
 /// Returns a status code and a JSON payload based on the value of the enum
@@ -245,6 +270,7 @@ impl IntoResponse for AuthResult {
         let (status, message) = match self {
             Self::Success => (StatusCode::OK, "Success"),
             Self::Error => (StatusCode::UNAUTHORIZED, "Error"),
+            Self::NotVerified => (StatusCode::UNAUTHORIZED, "Account not verified"),
         };
         (status, Json(json!({ "res": message }))).into_response()
     }

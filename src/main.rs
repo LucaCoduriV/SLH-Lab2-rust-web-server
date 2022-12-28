@@ -19,6 +19,7 @@ mod schema;
 mod user;
 mod web_auth;
 mod web_pages;
+mod mail;
 
 /// Executes the SQL instructions in the migrations folder. This creates the users table.
 fn run_migrations(pool: Pool) {

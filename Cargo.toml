@@ -28,4 +28,4 @@ dotenv = "0.15"
 
 jsonwebtoken = "8.2.0"
 lettre = "0.10.1"
-uuid = "1.2.2"
+rand = "0.8.4"

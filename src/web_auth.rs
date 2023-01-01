@@ -14,6 +14,7 @@ use axum_extra::extract::CookieJar;
 use axum_sessions::async_session::{MemoryStore, Session, SessionStore};
 use serde_json::json;
 use std::error::Error;
+use std::hash::Hasher;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
@@ -23,6 +24,7 @@ use oauth2::{AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, 
 use oauth2::reqwest::{async_http_client};
 use crate::mail::send_verification_email;
 use crate::oauth::get_google_oauth_email;
+use rand::distributions::{Alphanumeric, DistString};
 
 /// Declares the different endpoints
 /// state is used to pass common structs to the endpoints
@@ -54,7 +56,7 @@ async fn login(
             return Err(AuthResult::NotVerified.into_response());
         }
 
-        if user.get_auth_method() == AuthenticationMethod::Password  {
+        if user.get_auth_method() == AuthenticationMethod::Password {
             let parsed_hash = PasswordHash::new(&user.password.as_str()).unwrap();
             if let Ok(_) = Argon2::default().verify_password(_password.as_bytes(), &parsed_hash) {
                 println!("User logged in !");
@@ -76,7 +78,7 @@ async fn register(
     mut _conn: DbConn,
     State(_session_store): State<MemoryStore>,
     Json(register): Json<RegisterRequest>,
-) -> Result<AuthResult, Response> {
+) -> Result<AuthResult, AuthResult> {
     let _email = register.register_email;
     let _password = register.register_password;
 
@@ -87,15 +89,25 @@ async fn register(
     if let Err(_) = user_exists(&mut _conn, _email.as_str()) {
         save_user(&mut _conn, User::new(_email.as_str(), hash.as_str(),
                                         AuthenticationMethod::Password, false))
-            .or(Err((StatusCode::INTERNAL_SERVER_ERROR, AuthResult::Error).into_response()))?;
+            .or(Err(AuthResult::Error))?;
         println!("User created !");
 
-        send_verification_email(_email.clone(), format!("http://localhost:8000/verify-account/{}",
-                                                 _email).to_string());
+        let mut session = Session::new();
+        session.insert("email", _email.clone()).expect("Session couldn't insert email");
+
+        let session_id = match _session_store.store_session(session).await {
+            Ok(Some(value)) => value,
+            _ => return Err(AuthResult::Error),
+        };
+
+        send_verification_email(
+            _email.clone(),
+            format!("http://localhost:8000/verify-email/{}", session_id).to_string()
+        );
 
         Ok(AuthResult::Success)
     } else {
-        Err((StatusCode::UNAUTHORIZED, AuthResult::Error).into_response())
+        Err(AuthResult::Error)
     }
 
     // Once the user has been created, send a verification link by email
@@ -105,12 +117,26 @@ async fn register(
 }
 
 // TODO: Create the endpoint for the email verification function.
-async fn verify_email(Path(params): Path<HashMap<String, String>>, mut _conn: DbConn) {
-    let token = params.get("token");
+async fn verify_email(Path(params): Path<HashMap<String, String>>, mut _conn: DbConn, State(_session_store): State<MemoryStore>) ->
+Result<Redirect, StatusCode> {
+    let session_id = params.get("token").unwrap();
 
-    println!("{}", token.expect(""));
+    let session = match _session_store.load_session(session_id.clone()).await {
+        Ok(Some(value)) => value,
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
 
-    validate_account(&mut _conn, token.unwrap());
+    let email : Option<String> = session.get("email");
+
+    if email.is_none(){
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    validate_account(&mut _conn, email.unwrap().as_str());
+
+    _session_store.destroy_session(session);
+
+    Ok(Redirect::to("/login"))
 }
 
 /// Endpoint used for the first OAuth step
@@ -170,6 +196,7 @@ async fn oauth_redirect(
         Ok(Some(value)) => value,
         _ => return Err(StatusCode::BAD_REQUEST)
     };
+
 
     let pkce_verifier: PkceCodeVerifier = session.get("pkce_verifier").ok_or(StatusCode::BAD_REQUEST)?;
 
@@ -261,7 +288,7 @@ fn add_auth_cookie(jar: CookieJar, _user: &UserDTO) -> Result<CookieJar, Box<dyn
 enum AuthResult {
     Success,
     Error,
-    NotVerified
+    NotVerified,
 }
 
 /// Returns a status code and a JSON payload based on the value of the enum

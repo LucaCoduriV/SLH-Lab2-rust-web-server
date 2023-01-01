@@ -96,7 +96,7 @@ async fn register(
     println!("User created !");
 
     let mut session = Session::new();
-    session.insert("email", _email.clone()).expect("Session couldn't insert email");
+    session.insert("email", _email.clone()).or(Err(AuthResult::Error.into_response()))?;
 
     let session_id = match _session_store.store_session(session).await {
         Ok(Some(value)) => value,
@@ -166,8 +166,8 @@ async fn google_oauth(
     let jar = jar.add(cookie_csrf_token);
 
     let mut session = Session::new();
-    session.insert("pkce_verifier", pkce_verifier).expect("Session couldn't insert pkce_verifier");
-    session.insert("csrf_token", csrf_token).expect("Session couldn't insert pkce_verifier");
+    session.insert("pkce_verifier", pkce_verifier).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    session.insert("csrf_token", csrf_token).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
     let session_id = _session_store.store_session(session).await.unwrap().unwrap();
 
 

@@ -14,7 +14,6 @@ use axum_extra::extract::CookieJar;
 use axum_sessions::async_session::{MemoryStore, Session, SessionStore};
 use serde_json::json;
 use std::error::Error;
-use std::hash::Hasher;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
@@ -24,7 +23,8 @@ use oauth2::{AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, 
 use oauth2::reqwest::{async_http_client};
 use crate::mail::send_verification_email;
 use crate::oauth::get_google_oauth_email;
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distributions::DistString;
+use time::{Duration, OffsetDateTime};
 
 /// Declares the different endpoints
 /// state is used to pass common structs to the endpoints
@@ -112,7 +112,6 @@ async fn register(
     Ok(AuthResult::Success)
 }
 
-// TODO: Create the endpoint for the email verification function.
 async fn verify_email(Path(params): Path<HashMap<String, String>>, mut _conn: DbConn, State(_session_store): State<MemoryStore>) ->
 Result<Redirect, StatusCode> {
     let session_id = urlencoding::decode(params.get("token").unwrap()).unwrap().into_owned();
@@ -155,10 +154,14 @@ async fn google_oauth(
         .set_pkce_challenge(pkce_challenge)
         .url();
 
+    let now = OffsetDateTime::now_utc();
+    let one_hour = Duration::hours(1);
+
     let cookie_csrf_token = Cookie::build("csrf_token", csrf_token.secret().to_string())
         .path("/")
         .secure(true)
         .http_only(true)
+        .expires(now + one_hour)
         .finish();
     let jar = jar.add(cookie_csrf_token);
 
@@ -167,10 +170,13 @@ async fn google_oauth(
     session.insert("csrf_token", csrf_token).expect("Session couldn't insert pkce_verifier");
     let session_id = _session_store.store_session(session).await.unwrap().unwrap();
 
+
+
     let cookie = Cookie::build("session_id", session_id)
         .path("/")
         .secure(true)
         .http_only(true)
+        .expires(now + one_hour)
         .finish();
     let jar = jar.add(cookie);
 
@@ -272,12 +278,16 @@ async fn logout(jar: CookieJar) -> impl IntoResponse {
 
 #[allow(dead_code)]
 fn add_auth_cookie(jar: CookieJar, _user: &UserDTO) -> Result<CookieJar, Box<dyn Error>> {
-    // TODO: You have to create a new signed JWT and store it in the auth cookie.
-    //       Careful with the cookie options.
+    // Il faudrait peut-être ajouter un lifetime au cookie.
+
+    let now = OffsetDateTime::now_utc();
+    let one_week = Duration::weeks(1);
+
     let token = encode(&Header::default(), _user, &EncodingKey::from_secret("secret".as_ref()))?;
     Ok(jar.add(Cookie::build("auth", token).path("/")
         .secure(true)
         .http_only(true)
+        .expires(now + one_week)
         .finish()))
 }
 

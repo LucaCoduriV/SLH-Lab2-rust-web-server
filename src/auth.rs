@@ -7,8 +7,11 @@ use axum::response::Redirect;
 use axum::RequestPartsExt;
 use axum_extra::extract::CookieJar;
 use jsonwebtoken::{DecodingKey, Validation};
+use once_cell::sync::Lazy;
 
 const REDIRECT_URL: &str = "/home";
+
+static DECODING_KEY: Lazy<DecodingKey> = Lazy::new(|| DecodingKey::from_secret("secret".as_ref()));
 
 /// Retrieves a UserDTO from request parts if a user is currently authenticated.
 #[async_trait]
@@ -20,24 +23,16 @@ where
     type Rejection = Redirect;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // TODO: You have to read the auth cookie and verify the JWT to ensure the user is
-        //       authenticated.
         let jar = parts
             .extract::<CookieJar>()
-            .await
-            .expect("Could not get CookieJar from request parts");
+            .await.or(Err(Redirect::to(REDIRECT_URL)))?;
 
         let _jwt = jar.get("auth").ok_or(Redirect::to(REDIRECT_URL))?.value();
 
-        println!("{}", _jwt);
-        //  TODO ne pas oublier de faire le decodingkey en lazy static
-        if let Ok(token) = jsonwebtoken::decode::<UserDTO>(&_jwt, &DecodingKey::from_secret("secret".as_ref()), &Validation::default()){
-            println!("Token ok");
+        if let Ok(token) = jsonwebtoken::decode::<UserDTO>(&_jwt, &DECODING_KEY,
+                                                           &Validation::default()){
             return Ok(token.claims);
-        }else{
-
         }
-        println!("Token not ok");
 
         Err(Redirect::to(REDIRECT_URL))
     }

@@ -78,7 +78,7 @@ async fn register(
     mut _conn: DbConn,
     State(_session_store): State<MemoryStore>,
     Json(register): Json<RegisterRequest>,
-) -> Result<AuthResult, AuthResult> {
+) -> Result<AuthResult, Response> {
     let _email = register.register_email;
     let _password = register.register_password;
 
@@ -86,49 +86,45 @@ async fn register(
     let argon2 = Argon2::default();
     let hash = argon2.hash_password(_password.as_bytes(), &salt).unwrap().to_string();
 
-    if let Err(_) = user_exists(&mut _conn, _email.as_str()) {
-        save_user(&mut _conn, User::new(_email.as_str(), hash.as_str(),
-                                        AuthenticationMethod::Password, false))
-            .or(Err(AuthResult::Error))?;
-        println!("User created !");
-
-        let mut session = Session::new();
-        session.insert("email", _email.clone()).expect("Session couldn't insert email");
-
-        let session_id = match _session_store.store_session(session).await {
-            Ok(Some(value)) => value,
-            _ => return Err(AuthResult::Error),
-        };
-
-        send_verification_email(
-            _email.clone(),
-            format!("http://localhost:8000/verify-email/{}", session_id).to_string()
-        );
-
-        Ok(AuthResult::Success)
-    } else {
-        Err(AuthResult::Error)
+    if let Ok(_) = user_exists(&mut _conn, _email.as_str()) {
+        return Err(AuthResult::Error.into_response());
     }
 
-    // Once the user has been created, send a verification link by email
-    // If you need to store data between requests, you may use the session_store. You need to first
-    // create a new Session and store the variables. Then, you add the session to the session_store
-    // to get a session_id. You then store the session_id in a cookie.
+    save_user(&mut _conn, User::new(_email.as_str(), hash.as_str(),
+                                    AuthenticationMethod::Password, false))
+        .or(Err(AuthResult::Error.into_response()))?;
+    println!("User created !");
+
+    let mut session = Session::new();
+    session.insert("email", _email.clone()).expect("Session couldn't insert email");
+
+    let session_id = match _session_store.store_session(session).await {
+        Ok(Some(value)) => value,
+        _ => return Err(AuthResult::Error.into_response()),
+    };
+
+    send_verification_email(
+        _email.clone(),
+        format!("http://localhost:8000/verify-email/{}", urlencoding::encode(session_id.as_str()))
+            .to_string(),
+    );
+
+    Ok(AuthResult::Success)
 }
 
 // TODO: Create the endpoint for the email verification function.
 async fn verify_email(Path(params): Path<HashMap<String, String>>, mut _conn: DbConn, State(_session_store): State<MemoryStore>) ->
 Result<Redirect, StatusCode> {
-    let session_id = params.get("token").unwrap();
+    let session_id = urlencoding::decode(params.get("token").unwrap()).unwrap().into_owned();
 
     let session = match _session_store.load_session(session_id.clone()).await {
         Ok(Some(value)) => value,
         _ => return Err(StatusCode::BAD_REQUEST),
     };
 
-    let email : Option<String> = session.get("email");
+    let email: Option<String> = session.get("email");
 
-    if email.is_none(){
+    if email.is_none() {
         return Err(StatusCode::BAD_REQUEST);
     }
 

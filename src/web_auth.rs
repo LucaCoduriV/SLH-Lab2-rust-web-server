@@ -25,6 +25,11 @@ use crate::mail::send_verification_email;
 use crate::oauth::get_google_oauth_email;
 use rand::distributions::DistString;
 use time::{Duration, OffsetDateTime};
+use zxcvbn::zxcvbn;
+
+static MIN_PASSWORD_SCORE: u8 = 3;
+static MIN_PASSWORD_LEN: usize = 8;
+static MAX_PASSWORD_LEN: usize = 64;
 
 /// Declares the different endpoints
 /// state is used to pass common structs to the endpoints
@@ -81,6 +86,15 @@ async fn register(
 ) -> Result<AuthResult, Response> {
     let _email = register.register_email;
     let _password = register.register_password;
+
+    if _password.chars().count() < MIN_PASSWORD_LEN || _password.chars().count() > MAX_PASSWORD_LEN {
+        return Err(AuthResult::Error.into_response());
+    }
+
+    let estimate = zxcvbn(_password.as_str(), &[_email.as_str()]).unwrap();
+    if estimate.score() < MIN_PASSWORD_SCORE {
+        return Err(AuthResult::Error.into_response());
+    }
 
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();

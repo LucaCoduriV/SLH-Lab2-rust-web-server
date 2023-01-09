@@ -23,7 +23,6 @@ use oauth2::{AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, 
 use oauth2::reqwest::{async_http_client};
 use crate::mail::send_verification_email;
 use crate::oauth::get_google_oauth_email;
-use rand::distributions::DistString;
 use time::{Duration, OffsetDateTime};
 use zxcvbn::zxcvbn;
 
@@ -141,9 +140,16 @@ Result<Redirect, StatusCode> {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    validate_account(&mut _conn, email.unwrap().as_str());
+    let validate_account_result = validate_account(&mut _conn, email.unwrap().as_str());
 
-    _session_store.destroy_session(session);
+    // TODO malheureusement je ne sait pas comment gérer le résultat, ça ne compile pas.
+    #[allow(unused_must_use)]{
+        _session_store.destroy_session(session);
+    }
+
+    if validate_account_result.is_err() {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
 
     Ok(Redirect::to("/login"))
 }

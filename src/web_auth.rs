@@ -12,12 +12,13 @@ use axum::routing::{get, post};
 use axum_extra::extract::cookie::Cookie;
 use axum_extra::extract::CookieJar;
 use axum_sessions::async_session::{MemoryStore, Session, SessionStore};
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{encode, Header};
 use oauth2::{AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope};
 use oauth2::reqwest::async_http_client;
 use serde_json::json;
 use time::{Duration, OffsetDateTime};
 use zxcvbn::zxcvbn;
+use crate::auth::ENCODING_KEY;
 
 use crate::db::{DbConn, get_user, save_user, update_password, user_exists, validate_account};
 use crate::mail::{is_email_valid, send_verification_email};
@@ -316,7 +317,7 @@ fn add_auth_cookie(jar: CookieJar, _user: &UserDTO) -> Result<CookieJar, Box<dyn
     let now = OffsetDateTime::now_utc();
     let one_week = Duration::weeks(1);
 
-    let token = encode(&Header::default(), _user, &EncodingKey::from_secret("secret".as_ref()))?;
+    let token = encode(&Header::default(), _user, &ENCODING_KEY)?;
     Ok(jar.add(Cookie::build("auth", token).path("/")
         .secure(true)
         .http_only(true)

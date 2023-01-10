@@ -1,3 +1,4 @@
+use std::env;
 use crate::db::Pool;
 use crate::user::UserDTO;
 use axum::async_trait;
@@ -6,12 +7,16 @@ use axum::http::request::Parts;
 use axum::response::Redirect;
 use axum::RequestPartsExt;
 use axum_extra::extract::CookieJar;
-use jsonwebtoken::{DecodingKey, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Validation};
 use once_cell::sync::Lazy;
 
 const REDIRECT_URL: &str = "/home";
 
-static DECODING_KEY: Lazy<DecodingKey> = Lazy::new(|| DecodingKey::from_secret("secret".as_ref()));
+pub static DECODING_KEY: Lazy<DecodingKey> = Lazy::new(|| DecodingKey::from_secret(env::var
+    ("JWT_SECRET").expect("Could not get GOOGLE_CLIENT_ID from ENV").as_str().as_ref()));
+
+pub static ENCODING_KEY: Lazy<EncodingKey> = Lazy::new(|| EncodingKey::from_secret(env::var
+    ("JWT_SECRET").expect("Could not get GOOGLE_CLIENT_ID from ENV").as_str().as_ref()));
 
 /// Retrieves a UserDTO from request parts if a user is currently authenticated.
 #[async_trait]

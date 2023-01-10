@@ -70,8 +70,14 @@ async fn login(
                 return Ok((jar, AuthResult::Success));
             }
         }
+    } else {
+        println!("User does not exist !");
+        let parsed_hash = PasswordHash::new(&"$argon2id$v=19$m=4096,t=3,p=1$gzjBbnp+hhXvZKcMk5qbGw$6daIvrsGdWuS/+ZQsm9OFDZc+tkebye3+qwXyh/vH3g").unwrap();
+        #[allow(unused_must_use)]{
+            Argon2::default().verify_password(_password.as_bytes(), &parsed_hash);
+        }
     }
-    println!("User does not exist !");
+
     Err(AuthResult::Error.into_response())
 }
 

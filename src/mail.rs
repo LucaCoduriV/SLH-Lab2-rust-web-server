@@ -1,6 +1,8 @@
 use std::env;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 
 #[test]
@@ -12,6 +14,57 @@ fn test_send_email() {
     send_verification_email("test@gmail.com".to_string(),
                             "http://localhost:8080/verify-account?token=alksdhajsdsaslj".to_string
     ());
+}
+
+#[test]
+fn test_is_email_valid(){
+    let valid_email_addresses = [
+        "foo@bar.com",
+        "foo.bar42@c.com",
+        "42@c.com",
+        "f@42.co",
+        "foo@4-2.team",
+        "foo_bar@bar.com",
+        "_bar@bar.com",
+        "foo_@bar.com",
+        "foo+bar@bar.com",
+        "+bar@bar.com",
+        "foo+@bar.com",
+        "foo.lastname@bar.com"
+    ];
+
+    let invalid_email_addresses = [
+    "#@%^%#$@#$@#.com",
+    "@example.com",
+    "Joe Smith <email@example.com>",
+        "email.example.com",
+    "email@example@example.com",
+        ".email@example.com",
+    "email.@example.com",
+    "あいうえお@example.com",
+    "email@example.com (Joe Smith)",
+    "email@example",
+    "email@-example.com",
+    "email@111.222.333.44444",
+    "email@example..com",
+    "Abc..123@example.com"
+    ];
+
+    for email in valid_email_addresses.iter() {
+        assert!(is_email_valid(email));
+    }
+
+    for email in invalid_email_addresses.iter() {
+        assert!(!is_email_valid(email));
+    }
+}
+
+pub fn is_email_valid(email: &str) -> bool{
+    static EMAIL_REGEX: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"^([a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?)@([a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,6})$").unwrap()
+    });
+
+    EMAIL_REGEX.is_match(email)
 }
 
 pub fn send_verification_email(other_email: String, activation_link: String) {

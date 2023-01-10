@@ -20,7 +20,7 @@ use time::{Duration, OffsetDateTime};
 use zxcvbn::zxcvbn;
 
 use crate::db::{DbConn, get_user, save_user, update_password, user_exists, validate_account};
-use crate::mail::send_verification_email;
+use crate::mail::{is_email_valid, send_verification_email};
 use crate::models::{
     AppState, LoginRequest, OAuthRedirect, PasswordUpdateRequest, RegisterRequest,
 };
@@ -92,6 +92,10 @@ async fn register(
 ) -> Result<AuthResult, Response> {
     let _email = register.register_email;
     let _password = register.register_password;
+
+    if !is_email_valid(_email.as_str()) {
+        return Err(AuthResult::Error.into_response());
+    }
 
     if !is_password_strength_enough(_password.as_str(), &[_email.as_str()]) {
         return Err(AuthResult::Error.into_response());

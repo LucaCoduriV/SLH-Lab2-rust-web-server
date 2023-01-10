@@ -13,7 +13,7 @@ fn test_send_email() {
     dotenv().ok();
     send_verification_email("test@gmail.com".to_string(),
                             "http://localhost:8080/verify-account?token=alksdhajsdsaslj".to_string
-    ());
+    ()).expect("Could not send email");
 }
 
 #[test]
@@ -67,7 +67,7 @@ pub fn is_email_valid(email: &str) -> bool{
     EMAIL_REGEX.is_match(email)
 }
 
-pub fn send_verification_email(other_email: String, activation_link: String) {
+pub fn send_verification_email(other_email: String, activation_link: String) -> Result<(), ()> {
     let host = env::var("SMTP_HOST").expect("Could not get SMTP_HOST from ENV");
     let port = env::var("SMTP_PORT").expect("Could not get SMTP_PORT from ENV").parse::<u16>()
         .expect("Port should be a number.");
@@ -92,8 +92,8 @@ pub fn send_verification_email(other_email: String, activation_link: String) {
         .build();
 
 // Send the email
-    match mailer.send(&email) {
-        Ok(_) => println!("Email sent successfully!"),
-        Err(e) => panic!("Could not send email: {:?}", e),
+    return match mailer.send(&email) {
+        Ok(_) => Ok(()),
+        Err(_) => Err(()),
     }
 }

@@ -126,7 +126,11 @@ async fn register(
         _email.clone(),
         format!("http://localhost:8000/verify-email/{}", urlencoding::encode(session_id.as_str()))
             .to_string(),
-    );
+    ).or(Err(AuthResult::Error.into_response()))?;
+
+    // TODO: il faut pouvoir renvoyer le mail de
+    // confirmation ou alors supprimer l'utilisateur de la base de donnée dans le cas où le mail
+    // n'est pas envoyé.
 
     Ok(AuthResult::Success)
 }

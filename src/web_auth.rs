@@ -1,30 +1,31 @@
 use std::collections::HashMap;
-use crate::db::{DbConn, get_user, save_user, update_password, user_exists, validate_account};
-use crate::models::{
-    AppState, LoginRequest, OAuthRedirect, PasswordUpdateRequest, RegisterRequest,
-};
-use crate::user::{AuthenticationMethod, User, UserDTO};
+use std::error::Error;
+
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::SaltString;
+use axum::{Json, Router};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
 use axum_extra::extract::cookie::Cookie;
 use axum_extra::extract::CookieJar;
 use axum_sessions::async_session::{MemoryStore, Session, SessionStore};
-use serde_json::json;
-use std::error::Error;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::SaltString;
 use jsonwebtoken::{encode, EncodingKey, Header};
-
 use oauth2::{AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope};
-use oauth2::reqwest::{async_http_client};
-use crate::mail::send_verification_email;
-use crate::oauth::get_google_oauth_email;
+use oauth2::reqwest::async_http_client;
+use serde_json::json;
 use time::{Duration, OffsetDateTime};
 use zxcvbn::zxcvbn;
+
+use crate::db::{DbConn, get_user, save_user, update_password, user_exists, validate_account};
+use crate::mail::send_verification_email;
+use crate::models::{
+    AppState, LoginRequest, OAuthRedirect, PasswordUpdateRequest, RegisterRequest,
+};
+use crate::oauth::get_google_oauth_email;
+use crate::user::{AuthenticationMethod, User, UserDTO};
 
 static MIN_PASSWORD_SCORE: u8 = 3;
 static MIN_PASSWORD_LEN: usize = 8;
@@ -73,7 +74,7 @@ async fn login(
     } else {
         println!("User does not exist !");
         let parsed_hash = PasswordHash::new(&"$argon2id$v=19$m=4096,t=3,p=1$gzjBbnp+hhXvZKcMk5qbGw$6daIvrsGdWuS/+ZQsm9OFDZc+tkebye3+qwXyh/vH3g").unwrap();
-        #[allow(unused_must_use)]{
+        #[allow(unused_must_use)] {
             Argon2::default().verify_password(_password.as_bytes(), &parsed_hash);
         }
     }
@@ -92,12 +93,7 @@ async fn register(
     let _email = register.register_email;
     let _password = register.register_password;
 
-    if _password.chars().count() < MIN_PASSWORD_LEN || _password.chars().count() > MAX_PASSWORD_LEN {
-        return Err(AuthResult::Error.into_response());
-    }
-
-    let estimate = zxcvbn(_password.as_str(), &[_email.as_str()]).unwrap();
-    if estimate.score() < MIN_PASSWORD_SCORE {
+    if !is_password_strength_enough(_password.as_str(), &[_email.as_str()]) {
         return Err(AuthResult::Error.into_response());
     }
 
@@ -149,7 +145,7 @@ Result<Redirect, StatusCode> {
     let validate_account_result = validate_account(&mut _conn, email.unwrap().as_str());
 
     // TODO malheureusement je ne sait pas comment gérer le résultat, ça ne compile pas.
-    #[allow(unused_must_use)]{
+    #[allow(unused_must_use)] {
         _session_store.destroy_session(session);
     }
 
@@ -195,7 +191,6 @@ async fn google_oauth(
     session.insert("pkce_verifier", pkce_verifier).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
     session.insert("csrf_token", csrf_token).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
     let session_id = _session_store.store_session(session).await.unwrap().unwrap();
-
 
 
     let cookie = Cookie::build("session_id", session_id)
@@ -272,6 +267,10 @@ async fn password_update(
     _user: UserDTO,
     Json(_update): Json<PasswordUpdateRequest>,
 ) -> Result<AuthResult, Response> {
+    if !is_password_strength_enough(_update.new_password.as_str(), &[_user.email.as_str()]) {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+
     let user = get_user(&mut _conn, _user.email.as_str())
         .or(Err((StatusCode::BAD_REQUEST, AuthResult::Error).into_response()))?;
 
@@ -333,4 +332,17 @@ impl IntoResponse for AuthResult {
         };
         (status, Json(json!({ "res": message }))).into_response()
     }
+}
+
+fn is_password_strength_enough(password: &str, user_inputs: &[&str]) -> bool {
+    if password.chars().count() < MIN_PASSWORD_LEN || password.chars().count() > MAX_PASSWORD_LEN {
+        return false;
+    }
+
+    let estimate = zxcvbn(password, user_inputs).unwrap();
+    if estimate.score() < MIN_PASSWORD_SCORE {
+        return false;
+    }
+
+    true
 }

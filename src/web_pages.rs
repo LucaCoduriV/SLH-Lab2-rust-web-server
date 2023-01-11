@@ -24,7 +24,6 @@ async fn index() -> impl IntoResponse {
 
 /// Home page for authenticated users
 async fn get_home(State(hbs): State<Handlebars<'_>>, user: Option<UserDTO>) -> impl IntoResponse {
-    println!("{:?}", user);
     Html(hbs.render("home", &user).unwrap())
 }
 

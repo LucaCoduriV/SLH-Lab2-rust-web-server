@@ -188,14 +188,6 @@ async fn google_oauth(
     let now = OffsetDateTime::now_utc();
     let one_hour = Duration::hours(1);
 
-    let cookie_csrf_token = Cookie::build("csrf_token", csrf_token.secret().to_string())
-        .path("/")
-        .secure(true)
-        .http_only(true)
-        .expires(now + one_hour)
-        .finish();
-    let jar = jar.add(cookie_csrf_token);
-
     let mut session = Session::new();
     session.insert("pkce_verifier", pkce_verifier).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
     session.insert("csrf_token", csrf_token).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
@@ -234,10 +226,8 @@ async fn oauth_redirect(
 
     let csrf_token: CsrfToken = session.get("csrf_token").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let cookie_csrf_token = jar.get("csrf_token").ok_or(StatusCode::BAD_REQUEST)?.clone();
 
-
-    if csrf_token.secret() != cookie_csrf_token.value() {
+    if csrf_token.secret().ne(&_params.state)  {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -263,7 +253,6 @@ async fn oauth_redirect(
             .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?
     };
 
-    let jar = jar.remove(cookie_csrf_token);
     // session.remove("csrf_token"); je pense qu'il est possible d'empêcher quelqu'un de se connecter avec cette ligne
     Ok((jar, Redirect::to("/home")))
 }
